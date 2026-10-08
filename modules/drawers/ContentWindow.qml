@@ -248,6 +248,11 @@ StyledWindow {
         }
     }
 
+    // Enabled shell plugins (see qs.services.Plugins), below the bar and panels
+    PluginLayer {
+        anchors.fill: parent
+    }
+
     Interactions {
         id: interactions
 
