@@ -7,6 +7,7 @@ import Quickshell.Widgets
 import Quickshell.Services.Notifications
 import Caelestia.Config
 import qs.components
+import qs.components.controls
 import qs.components.effects
 import qs.services
 import qs.utils
@@ -167,6 +168,24 @@ StyledRect {
                     font: Tokens.font.body.small
                 }
 
+                IconButton {
+                    id: dismissBtn
+
+                    type: IconButton.Tonal
+                    icon: "close"
+                    font: Tokens.font.icon.small
+                    enabled: root.notifs.length > 0
+                    opacity: root.notifs.length > 0 ? 1 : 0
+
+                    onClicked: groupClearTimer.start()
+
+                    Behavior on opacity {
+                        Anim {
+                            type: Anim.DefaultEffects
+                        }
+                    }
+                }
+
                 StyledRect {
                     implicitWidth: expandBtn.implicitWidth + Tokens.padding.large
                     implicitHeight: groupCount.implicitHeight + Tokens.padding.extraSmall
@@ -303,6 +322,26 @@ StyledRect {
 
     Behavior on implicitHeight {
         Anim {}
+    }
+
+    // Dismisses this group's notifications a few at a time so their removal
+    // animations don't all fire in the same frame.
+    Timer {
+        id: groupClearTimer
+
+        repeat: true
+        triggeredOnStart: true
+        interval: 15
+        onTriggered: {
+            const pending = root.notifs.filter(n => !n.closed);
+            if (pending.length === 0) {
+                stop();
+                return;
+            }
+
+            for (const n of pending.slice(0, 30))
+                n.close();
+        }
     }
 
     component NotifLine: StyledText {

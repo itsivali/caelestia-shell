@@ -8,6 +8,7 @@ import Caelestia.Config
 import Caelestia.I18n
 import qs.components
 import qs.components.containers
+import qs.components.controls
 import qs.components.effects
 import qs.services
 import qs.utils
@@ -17,17 +18,77 @@ ColumnLayout {
 
     required property var lock
 
+    readonly property bool clearable: Notifs.notClosed.length > 0 && !Config.lock.hideNotifs
+
     anchors.fill: parent
     anchors.margins: Tokens.padding.large
 
     spacing: Tokens.spacing.medium
 
-    StyledText {
+    RowLayout {
         Layout.fillWidth: true
-        text: Notifs.list.length > 0 ? Tr.trN("%n notification", "%n notifications", Notifs.list.length) : Tr.tr("Notifications")
-        color: Colours.palette.m3outline
-        font: Tokens.font.mono.builders.small.weight(Font.Medium).build()
-        elide: Text.ElideRight
+
+        spacing: Tokens.spacing.medium
+
+        StyledText {
+            Layout.fillWidth: true
+            text: Notifs.list.length > 0 ? Tr.trN("%n notification", "%n notifications", Notifs.list.length) : Tr.tr("Notifications")
+            color: Colours.palette.m3outline
+            font: Tokens.font.mono.builders.small.weight(Font.Medium).build()
+            elide: Text.ElideRight
+        }
+
+        IconButton {
+            id: clearBtn
+
+            icon: "clear_all"
+            font: Tokens.font.icon.medium
+            enabled: root.clearable
+            opacity: root.clearable ? 1 : 0
+            scale: root.clearable ? 1 : 0.5
+
+            onClicked: clearTimer.start()
+
+            Behavior on opacity {
+                Anim {
+                    type: Anim.DefaultEffects
+                }
+            }
+
+            Behavior on scale {
+                Anim {
+                    type: Anim.FastSpatial
+                }
+            }
+        }
+    }
+
+    // Closes notifications a group at a time so their removal animations
+    // don't all fire in the same frame.
+    Timer {
+        id: clearTimer
+
+        repeat: true
+        triggeredOnStart: true
+        interval: Math.max(15, Math.min(80, 69.8 - 12.3 * Math.log(Notifs.notClosed.length)))
+        onTriggered: {
+            const first = Notifs.notClosed[0];
+            if (!first) {
+                stop();
+                return;
+            }
+
+            const appName = first.appName;
+            let cleared = 0;
+            for (const n of Notifs.notClosed.filter(n => n.appName === appName)) {
+                n.close();
+                cleared++;
+                if (cleared > 30) {
+                    interval = 5;
+                    return;
+                }
+            }
+        }
     }
 
     ClippingRectangle {
