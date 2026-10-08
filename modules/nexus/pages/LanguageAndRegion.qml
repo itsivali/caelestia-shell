@@ -11,6 +11,14 @@ import qs.modules.nexus.common
 PageBase {
     id: root
 
+    // Suggestions stay up while the city field has focus and a search has run
+    readonly property bool cityResultsOpen: cityField.field.activeFocus && Weather.citySearchAttempted
+
+    function coordInRange(value: string, limit: int): bool {
+        const n = parseFloat(value);
+        return Number.isFinite(n) && Math.abs(n) <= limit;
+    }
+
     // Temperature units (there must be one for each value of the TemperatureUnit enum)
     readonly property list<MenuItem> tempItems: [
         MenuItem {
@@ -107,48 +115,125 @@ PageBase {
             }
         }
 
-        // Weather
+        // Weather location
         SectionHeader {
-            text: Tr.tr("Weather")
+            text: Tr.tr("Weather location")
         }
 
-        // Placeholder until the map-based location picker lands
-        ConnectedRect {
-            Layout.fillWidth: true
+        TextFieldRow {
+            id: cityField
+
             first: true
-            last: true
-            implicitHeight: comingSoon.implicitHeight + Tokens.padding.extraLarge * 2
+            label: Tr.tr("City")
+            subtext: Tr.tr("Search by name, then pick a result")
+            placeholderText: Tr.tr("City name")
+            onValueEdited: value => Weather.requestCitySearch(value)
+            onEditingFinished: value => Weather.requestCitySearch(value)
+        }
 
-            ColumnLayout {
-                id: comingSoon
+        ItemList {
+            id: cityResults
 
-                anchors.centerIn: parent
-                width: parent.width - Tokens.padding.largeIncreased * 2
-                spacing: Tokens.padding.extraSmall
+            visible: root.cityResultsOpen
+            showList: Weather.citySuggestions.length > 0
+            placeholderIcon: "location_off"
+            placeholderText: Weather.citySearchPending ? Tr.tr("Searching…") : Tr.tr("No matching cities")
 
-                MaterialIcon {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: "map"
-                    color: Colours.palette.m3outlineVariant
-                    fontStyle: Tokens.font.icon.extraLarge
+            model: ScriptModel {
+                values: Weather.citySuggestions
+            }
+
+            delegate: StateLayer {
+                id: cityResult
+
+                required property int index
+                required property var modelData
+
+                anchors.left: cityResults.list.contentItem.left
+                anchors.right: cityResults.list.contentItem.right
+                anchors.fill: undefined
+                implicitHeight: cityResultLayout.implicitHeight + cityResultLayout.anchors.margins * 2
+                radius: Tokens.rounding.extraSmall
+                bottomLeftRadius: index === Weather.citySuggestions.length - 1 ? Tokens.rounding.extraLarge : radius
+                bottomRightRadius: index === Weather.citySuggestions.length - 1 ? Tokens.rounding.extraLarge : radius
+
+                onClicked: {
+                    Weather.setLocation(cityResult.modelData.coords);
+                    cityField.field.focus = false;
                 }
 
-                StyledText {
-                    Layout.alignment: Qt.AlignHCenter
-                    text: Tr.tr("Location picker coming soon")
-                    color: Colours.palette.m3outlineVariant
-                    font: Tokens.font.title.small
-                }
+                RowLayout {
+                    id: cityResultLayout
 
-                StyledText {
-                    Layout.fillWidth: true
-                    horizontalAlignment: Text.AlignHCenter
-                    wrapMode: Text.WordWrap
-                    text: Tr.tr("Choose your weather location on a map in a future update")
-                    color: Colours.palette.m3outlineVariant
-                    font: Tokens.font.body.small
+                    anchors.fill: parent
+                    anchors.margins: Tokens.padding.large
+                    anchors.leftMargin: Tokens.padding.extraLarge
+                    anchors.rightMargin: Tokens.padding.extraLarge
+                    spacing: Tokens.spacing.medium
+
+                    MaterialIcon {
+                        text: "location_on"
+                        color: Colours.palette.m3onSurfaceVariant
+                        fontStyle: Tokens.font.icon.medium
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        spacing: 0
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            text: cityResult.modelData.name
+                            font: Tokens.font.body.small
+                            elide: Text.ElideRight
+                        }
+
+                        StyledText {
+                            Layout.fillWidth: true
+                            visible: cityResult.modelData.detail !== ""
+                            text: cityResult.modelData.detail
+                            color: Colours.palette.m3outline
+                            font: Tokens.font.label.small
+                            elide: Text.ElideRight
+                        }
+                    }
                 }
             }
+        }
+
+        TextFieldRow {
+            id: coordsField
+
+            label: Tr.tr("Coordinates")
+            subtext: Tr.tr("Latitude, longitude")
+            placeholderText: "52.4064, 16.9251"
+            validate: /^\s*-?\d{1,3}(?:\.\d+)?\s*,\s*-?\d{1,3}(?:\.\d+)?\s*$/
+            errorText: Tr.tr("Enter a latitude and longitude")
+            onEditingFinished: value => {
+                const parts = value.split(",").map(part => part.trim());
+                if (parts.length === 2 && root.coordInRange(parts[0], 90) && root.coordInRange(parts[1], 180))
+                    Weather.setLocation(`${parts[0]},${parts[1]}`);
+            }
+        }
+
+        RowButton {
+            icon: "my_location"
+            text: Tr.tr("Use my location")
+            subtext: Tr.tr("Detect my city from my IP address")
+            onClicked: Weather.useIpLocation()
+        }
+
+        InfoRow {
+            last: true
+            icon: "explore"
+            iconColour: Colours.palette.m3primary
+            label: Tr.tr("Active location")
+            subtext: {
+                const name = Weather.city || Tr.tr("Looking up…");
+                const coords = GlobalConfig.services.weatherLocation;
+                return coords ? `${name} • ${coords}` : `${name} • ${Tr.tr("detected from IP")}`;
+            }
+            value: Weather.temp
         }
 
         // Units

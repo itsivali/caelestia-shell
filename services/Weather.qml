@@ -22,6 +22,12 @@ Singleton {
     property bool citiesLoaded: false
     property string pendingCoords
 
+    property list<var> citySuggestions: []
+    property bool citySearchPending: false
+    property bool citySearchAttempted: false
+    property string citySearchQuery
+    property int citySearchSeq: 0
+
     readonly property string icon: cc ? Icons.getWeatherIcon(cc.weatherCode) : "cloud_alert"
     readonly property string description: cc ? getWeatherCondition(cc.weatherCode) : Tr.tr("No weather")
     readonly property string temp: formatTemp(cc?.tempC)
@@ -227,6 +233,80 @@ Singleton {
         });
     }
 
+    function requestCitySearch(query: string): void {
+        const trimmed = query.trim();
+
+        if (trimmed.length < 2) {
+            clearCitySuggestions();
+            return;
+        }
+
+        citySearchQuery = trimmed;
+        citySearchAttempted = true;
+        citySearchPending = true;
+        citySearchTimer.restart();
+    }
+
+    function clearCitySuggestions(): void {
+        citySearchTimer.stop();
+        citySearchSeq++; // Discard any in-flight response
+        citySuggestions = [];
+        citySearchAttempted = false;
+        citySearchPending = false;
+    }
+
+    function fetchCitySuggestions(query: string): void {
+        const lang = Qt.locale().name.split("_")[0] || "en";
+        const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(query)}&count=5&language=${lang}&format=json`;
+        const seq = ++citySearchSeq;
+
+        Requests.get(url, text => {
+            if (seq !== citySearchSeq)
+                return; // A newer search is in flight, drop this response
+
+            citySearchPending = false;
+
+            let json;
+            try {
+                json = JSON.parse(text);
+            } catch (error) {
+                console.warn(lc, `Unable to parse city search response: ${error}`);
+                citySuggestions = [];
+                return;
+            }
+
+            citySuggestions = (json.results ?? []).map(result => ({
+                        name: fixCityName(result.name),
+                        detail: [result.admin1, result.country].filter(part => part).join(", "),
+                        coords: `${result.latitude},${result.longitude}`
+                    }));
+        }, error => {
+            if (seq !== citySearchSeq)
+                return;
+
+            citySearchPending = false;
+            citySuggestions = [];
+            console.warn(lc, `City search failed: ${error}`);
+        });
+    }
+
+    function setLocation(coords: string): void {
+        clearCitySuggestions();
+        GlobalConfig.services.weatherLocation = coords;
+    }
+
+    function useIpLocation(): void {
+        // Reset the resolved state first: reload() below only takes the IP
+        // lookup path when loc is empty.
+        loc = "";
+        city = "";
+
+        if (GlobalConfig.services.weatherLocation !== "")
+            GlobalConfig.services.weatherLocation = ""; // Fires onWeatherLocationChanged → reload()
+        else
+            reload();
+    }
+
     function fetchWeatherData(): void {
         const url = getWeatherUrl();
         if (url === "")
@@ -348,6 +428,13 @@ Singleton {
         running: true
         repeat: true
         onTriggered: fetchWeatherData()
+    }
+
+    Timer {
+        id: citySearchTimer
+
+        interval: 300 // Debounce keystrokes before geocoding
+        onTriggered: root.fetchCitySuggestions(root.citySearchQuery)
     }
 
     Timer {
